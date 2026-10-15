@@ -1,0 +1,4 @@
+name: payops-accs
+dependencies:
+  - python=3.11
+  - pytest

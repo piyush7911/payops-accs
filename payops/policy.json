@@ -1,0 +1,98 @@
+{
+  "version": 2,
+  "name": "payops-incident-policy",
+  "params": {
+    "autonomy_limit": 5000.0,
+    "min_consistency": 0.8,
+    "max_replacements": 1,
+    "replaceable_failure_types": [
+      "CHANNEL_TIMEOUT",
+      "SYSTEM_ERROR",
+      "UNABLE_TO_APPLY"
+    ]
+  },
+  "clauses": [
+    {
+      "id": "P1-single-live-payment",
+      "applies": [
+        "REPLACE"
+      ],
+      "check": "single_live_payment",
+      "text": "No replacement while any transfer for the obligation is in flight or paid.",
+      "overridable": false
+    },
+    {
+      "id": "P2-latest-terminal",
+      "applies": [
+        "REPLACE"
+      ],
+      "check": "latest_terminal_replaceable",
+      "text": "The most recent transfer must be CANCELLED with a failure type known to be safe to resend.",
+      "overridable": true
+    },
+    {
+      "id": "P3-fresh-request-id",
+      "applies": [
+        "REPLACE"
+      ],
+      "check": "fresh_request_id",
+      "text": "A replacement needs a request_id never used before.",
+      "overridable": false
+    },
+    {
+      "id": "P4-tenant-isolation",
+      "applies": [
+        "REPLACE"
+      ],
+      "check": "tenant_isolation",
+      "text": "Funds come only from the obligation's own tenant wallet.",
+      "overridable": false
+    },
+    {
+      "id": "P5-fee-budget",
+      "applies": [
+        "REPLACE"
+      ],
+      "check": "fee_budget",
+      "text": "Wallet must cover amount plus transfer fee.",
+      "overridable": false
+    },
+    {
+      "id": "P6-autonomy-limit",
+      "applies": [
+        "REPLACE"
+      ],
+      "check": "autonomy_limit",
+      "text": "Amounts above the autonomy limit need human approval.",
+      "overridable": true
+    },
+    {
+      "id": "P7-evidence",
+      "applies": [
+        "REPLACE",
+        "CLOSE"
+      ],
+      "check": "evidence_threshold",
+      "text": "Claims backing the action must meet the consistency threshold.",
+      "overridable": false
+    },
+    {
+      "id": "P8-no-wait-when-terminal",
+      "applies": [
+        "WAIT"
+      ],
+      "check": "wait_only_in_flight",
+      "text": "Waiting is only valid while a transfer is in flight.",
+      "overridable": false
+    },
+    {
+      "id": "P9-max-replacements",
+      "applies": [
+        "REPLACE"
+      ],
+      "check": "max_replacements",
+      "text": "At most max_replacements automatic replacements per obligation; beyond that a human decides.",
+      "overridable": false
+    }
+  ]
+}

@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incident Commander</title>
+<style>
+:root{
+  --bg:#f6f7fb; --panel:#ffffff; --ink:#14161f; --muted:#667085; --line:#e4e7ee; --accent:#5b3df5; --accent-ink:#ffffff;
+  --good:#127a4b; --good-bg:#e6f6ee; --bad:#b42318; --bad-bg:#fdecea; --warn:#9a5b00; --warn-bg:#fff4e0; --info:#2f4fbf; --info-bg:#eaf0ff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; --r:12px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d0f16; --panel:#161924; --ink:#eceef6; --muted:#9aa3b8; --line:#262b3b; --accent:#8b74ff; --accent-ink:#0d0f16;
+  --good:#52d19a; --good-bg:#12291f; --bad:#ff8a7a; --bad-bg:#2e1714; --warn:#f3b562; --warn-bg:#2b2112; --info:#8fa8ff; --info-bg:#172043;}}
+:root[data-theme="dark"]{
+  --bg:#0d0f16; --panel:#161924; --ink:#eceef6; --muted:#9aa3b8; --line:#262b3b; --accent:#8b74ff; --accent-ink:#0d0f16;
+  --good:#52d19a; --good-bg:#12291f; --bad:#ff8a7a; --bad-bg:#2e1714; --warn:#f3b562; --warn-bg:#2b2112; --info:#8fa8ff; --info-bg:#172043;}
+*{box-sizing:border-box} html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;min-height:100vh}
+header{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid var(--line);background:var(--panel)}
+h1{font-size:18px;margin:0;letter-spacing:-.01em} .sub{color:var(--muted);font-size:12.5px}
+.pills{display:flex;flex-wrap:wrap;gap:8px}
+.pill{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--muted);background:var(--bg);white-space:nowrap}
+.pill b{color:var(--ink);font-weight:600} .pill.ok{color:var(--good);background:var(--good-bg);border-color:transparent}
+main{display:grid;grid-template-columns:310px minmax(0,1fr) 340px;gap:16px;padding:16px 24px 28px;max-width:1500px;margin:0 auto}
+@media (max-width:1050px){main{grid-template-columns:minmax(0,1fr);padding:12px 16px}}
+header>div{min-width:0} .sub,.det,.clause,.apr{overflow-wrap:anywhere}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0 0 10px;font-weight:600}
+button{font:inherit;cursor:pointer;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 12px}
+button:hover:not(:disabled){border-color:var(--accent)} button:disabled{opacity:.5;cursor:not-allowed}
+button:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.scen{display:block;width:100%;text-align:left;margin-bottom:8px}
+.scen .t{font-weight:600} .scen .d{color:var(--muted);font-size:12.5px;margin-top:2px}
+.scen.run{border-color:var(--accent);background:var(--info-bg)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap} .grow{flex:1}
+select{font:inherit;border:1px solid var(--line);border-radius:9px;padding:6px 8px;background:var(--panel);color:var(--ink)}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.tab{padding:5px 11px;border-radius:999px;font-size:12.5px} .tab.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.goalbar{display:flex;flex-wrap:wrap;gap:6px 14px;color:var(--muted);font-size:12.5px;margin-bottom:12px}
+.goalbar b{color:var(--ink);font-variant-numeric:tabular-nums}
+.tl{position:relative;padding-left:26px;margin:0;list-style:none}
+.tl:before{content:"";position:absolute;left:9px;top:6px;bottom:6px;width:2px;background:var(--line)}
+.ev{position:relative;margin-bottom:12px} .ev.new{animation:in .35s ease-out}
+@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.ev.new{animation:none}}
+.dot{position:absolute;left:-26px;top:3px;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;background:var(--panel);border:2px solid var(--line);color:var(--muted)}
+.ev.goal .dot{border-color:var(--accent);color:var(--accent)} .ev.plan .dot{border-color:var(--info);color:var(--info)}
+.ev.gate .dot{border-color:var(--warn);color:var(--warn)} .ev.decision .dot{border-color:var(--good);color:var(--good)}
+.ev.alert .dot{border-color:var(--bad);color:var(--bad)} .ev.human .dot{border-color:var(--accent);color:var(--accent)}
+.ev.result .dot{background:var(--ink);border-color:var(--ink);color:var(--panel)}
+.evh{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
+.evt{font-weight:600} .kind{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.det{white-space:pre-wrap;color:var(--muted);font-size:13px;margin-top:2px;overflow-wrap:anywhere}
+.ev.reply .det{color:var(--ink);border-left:3px solid var(--line);padding-left:10px;font-style:italic}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
+.chip{font-size:11.5px;border-radius:6px;padding:1px 8px;border:1px solid transparent;font-family:var(--mono);overflow-wrap:anywhere}
+.chip.good{background:var(--good-bg);color:var(--good)} .chip.bad{background:var(--bad-bg);color:var(--bad)}
+.chip.warn{background:var(--warn-bg);color:var(--warn)} .chip.info{background:var(--info-bg);color:var(--info)}
+table{width:100%;border-collapse:collapse;font-size:12.5px} th{text-align:left;color:var(--muted);font-weight:600;padding:4px 6px 6px 0}
+td{padding:6px 8px 6px 0;border-top:1px solid var(--line);vertical-align:top} td.rid{word-break:break-all} .mono{font-family:var(--mono);font-size:11.5px}
+.st{white-space:nowrap}.ft{font-family:var(--mono);font-size:11px;color:var(--warn);word-break:break-all}
+.apr{border:1px solid var(--warn);background:var(--warn-bg);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.apr .sum{font-weight:600;margin-bottom:6px} .apr dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:6px 0 10px;font-size:12.5px}
+.apr dt{color:var(--muted)} .apr dd{margin:0;overflow-wrap:anywhere}
+.empty{color:var(--muted);font-size:13px;padding:6px 0}
+.clause{font-size:12.5px;padding:5px 0;border-top:1px solid var(--line)} .clause:first-of-type{border-top:0}
+.clause b{font-family:var(--mono);font-size:11.5px} .tag{font-size:10.5px;border-radius:5px;padding:0 6px;margin-left:6px;background:var(--warn-bg);color:var(--warn)}
+.tag.hard{background:var(--bad-bg);color:var(--bad)}
+.err{background:var(--bad-bg);color:var(--bad);border-radius:10px;padding:8px 12px;margin-bottom:12px}
+details summary{cursor:pointer;color:var(--muted);font-size:12.5px} .audit{max-height:260px;overflow:auto;font-family:var(--mono);font-size:11.5px}
+.audit div{padding:3px 0;border-top:1px solid var(--line);overflow-wrap:anywhere} .spin{display:inline-block;width:10px;height:10px;border:2px solid var(--accent);border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}} @media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.hero{text-align:center;padding:42px 12px;color:var(--muted)} .hero h3{color:var(--ink);margin:0 0 6px;font-size:17px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Incident Commander <span class="sub">· payout recovery that cannot pay twice</span></h1>
+    <div class="sub">An LLM proposes. ACCS verifies the facts, enforces the policy, and a human decides the risky cases.</div>
+  </div>
+  <div class="pills" id="pills"></div>
+</header>
+<main>
+  <div class="col">
+    <section class="card" aria-labelledby="h-scen">
+      <h2 id="h-scen">Scenarios</h2>
+      <div id="scenarios"></div>
+      <div class="row" style="margin-top:6px">
+        <button id="reset" title="Clear all incidents and start a fresh world">Reset</button>
+        <select id="mode" aria-label="Mode"><option value="simulator">Simulator</option><option value="live">Live sandbox</option></select>
+        <select id="llm" aria-label="Model"><option value="1">Live LLM</option><option value="0">Offline heuristic</option></select>
+      </div>
+    </section>
+    <section class="card" aria-labelledby="h-pol">
+      <h2 id="h-pol">Policy <span class="sub" id="poldig"></span></h2>
+      <div id="policy"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card" aria-live="polite">
+      <div id="err"></div>
+      <div class="tabs" id="tabs"></div>
+      <div id="incident"></div>
+    </section>
+    <details class="card"><summary>Audit log (append-only, durable)</summary><div class="audit" id="audit" style="margin-top:8px"></div></details>
+  </div>
+
+  <div class="col">
+    <section class="card" aria-labelledby="h-apr">
+      <h2 id="h-apr">Approval queue</h2>
+      <div id="approvals"></div>
+    </section>
+    <section class="card" aria-labelledby="h-tr">
+      <h2 id="h-tr">Transfers on Airwallex</h2>
+      <div id="transfers"></div>
+    </section>
+    <section class="card" aria-labelledby="h-wh">
+      <h2 id="h-wh">Webhook worker</h2>
+      <div id="webhook" class="sub"></div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const ICON = {goal:"◎",info:"⚡",plan:"✦",gate:"⛨",decision:"✓",reply:"✉",human:"☺",alert:"!",result:"⚑"};
+let selected = null, last = null, busy = false; const cache = {}, seen = {};
+// write to the DOM only when a section's HTML actually changed: no flicker, no scroll reset, no replayed animations
+const put = (id, html) => { if (cache[id] !== html) { cache[id] = html; $(id).innerHTML = html; } };
+
+async function api(path, body, retried){
+  const tok = sessionStorage.getItem("approverToken") || "";
+  const r = await fetch(path, body === undefined ? {} : {method:"POST", headers:{"content-type":"application/json", "x-approver-token":tok}, body:JSON.stringify(body)});
+  if (r.status === 403 && !retried) {  // approvals can require a token (PAYOPS_APPROVER_TOKEN on the server)
+    const t = prompt("Approver token required to approve or deny payments:");
+    if (t) { sessionStorage.setItem("approverToken", t); return api(path, body, true); }
+  }
+  return r.json();
+}
+const chip = c => `<span class="chip ${esc(c.tone)}">${esc(c.label)}</span>`;
+
+function render(s){
+  last = s;
+  put("pills", [
+    `<span class="pill"><b>${s.mode === "live" ? "LIVE SANDBOX" : "SIMULATOR"}</b></span>`,
+    `<span class="pill">AI <b>${esc(s.llm ? s.model : "offline heuristic")}</b></span>`,
+    s.formal ? `<span class="pill ok" title="Exhaustive model check of the gate over every reachable state and every possible proposal">✓ ${s.formal.states} states · ${s.formal.decisions.toLocaleString()} decisions · ${s.formal.violations} violations</span>` : `<span class="pill">verifying…</span>`,
+    `<span class="pill">policy <b>${esc(s.policy.digest)}</b></span>`
+  ].join(""));
+  $("mode").value = s.mode; $("llm").value = s.llm ? "1" : "0";
+  put("scenarios", s.scenarios.map(x => `<button class="scen ${s.running===x.name?"run":""}" data-s="${esc(x.name)}" ${(!x.available||s.running)?"disabled":""}>
+      <div class="t">${s.running===x.name?'<span class="spin"></span>':""}${esc(x.title)}</div><div class="d">${esc(x.blurb)}${x.available?"":" (simulator only)"}</div></button>`).join(""));
+  $("poldig").textContent = s.policy.digest;
+  put("policy", s.policy.clauses.map(c => `<div class="clause"><b>${esc(c.id.split("-")[0])}</b> ${esc(c.text)}<span class="tag ${c.overridable?"":"hard"}">${c.overridable?"human can override":"hard"}</span></div>`).join(""));
+  put("err", s.error ? `<div class="err" role="alert">${esc(s.error)}</div>` : "");
+
+  const incs = s.incidents;
+  if (!incs.length){ put("tabs", ""); put("incident", `<div class="hero"><h3>Pick a scenario</h3>Watch the agent plan, get new information, change its mind, and stay safe.</div>`); }
+  else{
+    if (!selected || !incs.find(i => i.id === selected)) selected = incs[0].id;
+    put("tabs", incs.map(i => `<button class="tab ${i.id===selected?"on":""}" data-i="${esc(i.id)}">${esc(i.id)}</button>`).join(""));
+    const inc = incs.find(i => i.id === selected);
+    const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 80;
+    const prev = seen[inc.id] ?? inc.timeline.length; seen[inc.id] = inc.timeline.length;
+    put("incident", `<div class="goalbar"><span>Tenant <b>${esc(inc.tenant)}</b></span><span>Amount <b>${esc(inc.amount)} ${esc(inc.currency)}</b></span><span>${esc(inc.method)} fee <b>${esc(inc.fee)}</b></span><span>Wallet <b>${Number(inc.wallet).toLocaleString(undefined,{maximumFractionDigits:2})}</b></span><span>Live transfers <b>${inc.live_count}</b> <span title="the invariant: never more than one">(max 1)</span></span></div>
+      <ol class="tl">${inc.timeline.map((e, ix) => `<li class="ev ${esc(e.kind)}${ix >= prev ? " new" : ""}"><span class="dot" aria-hidden="true">${ICON[e.kind]||"•"}</span>
+        <div class="evh"><span class="kind">${esc(e.kind)}</span><span class="evt">${esc(e.title)}</span></div>
+        ${e.detail?`<div class="det">${esc(e.detail)}</div>`:""}${e.chips.length?`<div class="chips">${e.chips.map(chip).join("")}</div>`:""}</li>`).join("")}</ol>`);
+    if (atBottom && s.running) window.scrollTo({top:document.body.scrollHeight});
+    put("transfers", `<table><tr><th>Transfer</th><th>Status</th><th>request_id</th></tr>${inc.transfers.map(t => `<tr><td class="mono">${esc(t.id.slice(0,8))}</td><td class="st">${esc(t.status)}${t.failure_type?`<div class="ft">${esc(t.failure_type)}</div>`:""}</td><td class="mono rid">${esc(t.request_id)}</td></tr>`).join("")}</table>`
+      + `<div class="sub" style="margin-top:8px">Write-ahead attempts: ${inc.attempts.map(a=>`<span class="mono">#${a.attempt_no} ${esc(a.state)}</span>`).join(" · ")||"none"}</div>`);
+  }
+  if (!incs.length) put("transfers", `<div class="empty">No incident yet.</div>`);
+
+  put("approvals", s.approvals.length ? s.approvals.map(a => `<div class="apr"><div class="sum">${esc(a.terms.summary)}</div>
+      <div class="sub">Needs you because of <b>${esc(a.clause)}</b>. Approval is bound to exactly these terms; if anything changes it expires.</div>
+      <dl><dt>Amount</dt><dd>${esc(a.terms.amount)} ${esc(a.terms.currency)} via ${esc(a.terms.method)}</dd><dt>Beneficiary</dt><dd class="mono">${esc(a.terms.beneficiary_id)}</dd>
+      <dt>Tenant</dt><dd>${esc(a.terms.tenant)}</dd><dt>request_id</dt><dd class="mono">${esc(a.terms.request_id)}</dd>
+      <dt>Latest transfer</dt><dd class="mono">${esc(a.terms.latest_transfer ? a.terms.latest_transfer.status + " " + (a.terms.latest_transfer.failure_type||"") : "")}</dd></dl>
+      <div class="row"><button class="primary" data-a="${esc(a.id)}" data-v="approve">Approve & send</button><button data-a="${esc(a.id)}" data-v="deny">Deny</button></div></div>`).join("")
+    : `<div class="empty">Nothing waiting. Hard rules (single live payment, tenant isolation, fee budget…) are never queued — they simply block.</div>`);
+  put("webhook", s.webhook.log.length ? s.webhook.log.map(l => `<div class="mono">${esc(l[0])} · ${esc(l[2])}</div>`).join("") : "Idle. Run “Signed webhooks ×3”.");
+  put("audit", s.audit.map(a => `<div>#${a.id} ${esc(a.kind)} ${esc(a.obligation_id)} ${esc(JSON.stringify(a.body).slice(0,260))}</div>`).join("") || "empty");
+}
+
+async function tick(){
+  if (busy) return;
+  try{ render(await api("/api/state")); }catch(e){ put("err", `<div class="err">Lost connection to the server.</div>`); }
+}
+document.addEventListener("click", async ev => {
+  const b = ev.target.closest("button"); if(!b) return;
+  busy = true;
+  try{
+    if (b.dataset.s) { selected = null; const r = await api("/api/scenario/" + b.dataset.s, {}); if (r.error) alert(r.error); }
+    else if (b.dataset.i) selected = b.dataset.i;
+    else if (b.dataset.a) await api(`/api/approvals/${b.dataset.a}/${b.dataset.v}`, {by:"operator@demo"});
+    else if (b.id === "reset"){ selected = null; await api("/api/reset", {}); }
+  } finally { busy = false; }
+  tick();
+});
+$("mode").onchange = async e => { selected=null; await api("/api/reset", {mode:e.target.value}); tick(); };
+$("llm").onchange = async e => { selected=null; await api("/api/reset", {use_llm:e.target.value==="1"}); tick(); };
+tick(); setInterval(tick, 800);
+</script>
+</body>
+</html>
