@@ -36,7 +36,7 @@ aw.transition("acct_A", t.id, "SENT"); aw.transition("acct_A", t.id, "PAID")
 print("  close report:", cmd.close_report("inv-A"))
 
 print("\n== Tenant B: wallet short, tenant A has plenty (no cross-tenant funding) ==")
-b, b0 = setup(aw, "acct_B", "inv-B", 1000, 1500)  # enough for ONE swift payout only
+b, b0 = setup(aw, "acct_B", "inv-B", 1000, 1020)  # covers the payout, but after the failure refunds the amount (the fee is kept) it cannot cover a second payout + fee
 cmd.register(b, b0)
 aw.transition("acct_B", b0.id, "SENT"); aw.transition("acct_B", b0.id, "FAILED", "CHANNEL_TIMEOUT")
 show("replace w/o funds", cmd.handle("inv-B", "Supplier: where is it?"))

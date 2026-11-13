@@ -1,0 +1,114 @@
+[
+ {
+  "failure": "SYSTEM_ERROR",
+  "event_received": true,
+  "decision": "REPLACED",
+  "note": "replacement 367a1b67-6ea3-40e3-8925-f10c17c63d58 created",
+  "transfers": 2,
+  "live": 1
+ },
+ {
+  "failure": "CHANNEL_TIMEOUT",
+  "event_received": true,
+  "decision": "REPLACED",
+  "note": "replacement bad57aad-40f9-42c7-bb29-9a5b67f15ef0 created",
+  "transfers": 2,
+  "live": 1
+ },
+ {
+  "failure": "UNABLE_TO_APPLY",
+  "event_received": true,
+  "decision": "REPLACED",
+  "note": "replacement a7ba383d-555a-43ef-9d81-022d9545d3d2 created",
+  "transfers": 2,
+  "live": 1
+ },
+ {
+  "failure": "SYSTEM_ERROR",
+  "event_received": true,
+  "decision": "REPLACED",
+  "note": "replacement 0fea5273-acea-4420-bd49-de58b14e45af created",
+  "transfers": 2,
+  "live": 1
+ },
+ {
+  "failure": "CHANNEL_TIMEOUT",
+  "event_received": true,
+  "decision": "REPLACED",
+  "note": "replacement 729f709a-2453-43b2-ba0f-797f763bc408 created",
+  "transfers": 2,
+  "live": 1
+ },
+ {
+  "failure": "UNABLE_TO_APPLY",
+  "event_received": true,
+  "decision": "REPLACED",
+  "note": "replacement 0eeda8b5-d03e-4071-af11-3fdc27cbea0e created",
+  "transfers": 2,
+  "live": 1
+ },
+ {
+  "failure": "SYSTEM_ERROR",
+  "event_received": true,
+  "decision": "REPLACED",
+  "note": "replacement d2882d8d-aca4-4696-bf20-9b69ad7bba59 created",
+  "transfers": 2,
+  "live": 1
+ },
+ {
+  "failure": "CHANNEL_TIMEOUT",
+  "event_received": true,
+  "decision": "ESCALATED",
+  "note": "The notification says the transfer is PAID, but live records show it was CANCELLED due to a channel timeout, creating a conflict that requires higher\u2011level investigation.",
+  "transfers": 1,
+  "live": 0
+ },
+ {
+  "failure": "UNABLE_TO_APPLY",
+  "event_received": true,
+  "decision": "REPLACED",
+  "note": "replacement 63f5d6ad-1e82-44c5-976f-845bddcf0bee created",
+  "transfers": 2,
+  "live": 1
+ },
+ {
+  "failure": "CHANNEL_TIMEOUT",
+  "event_received": true,
+  "decision": "REPLACED",
+  "note": "replacement b8ec1732-c332-4bc6-8eff-2d1f873eb226 created",
+  "transfers": 2,
+  "live": 1
+ },
+ {
+  "failure": "RECALL_REQUESTED",
+  "event_received": true,
+  "decision": "ESCALATED",
+  "note": "The live transfer record shows the payout was cancelled with a RECALL_REQUESTED failure, whereas the external event notification claims the same transfer is PAID. The contradictory information makes i",
+  "transfers": 1,
+  "live": 0
+ },
+ {
+  "failure": "BENEFICIARY_BANK_RETURNED",
+  "event_received": true,
+  "decision": "PENDING_APPROVAL",
+  "note": "P2-latest-terminal: failure_type 'BENEFICIARY_BANK_RETURNED' is not known-replaceable; waiting for human approval apr_bcabff196bf6",
+  "transfers": 1,
+  "live": 0
+ },
+ {
+  "failure": "ACCOUNT_CLOSED",
+  "event_received": true,
+  "decision": "PENDING_APPROVAL",
+  "note": "P2-latest-terminal: failure_type 'ACCOUNT_CLOSED' is not known-replaceable; waiting for human approval apr_c03ad6c79807",
+  "transfers": 1,
+  "live": 0
+ },
+ {
+  "failure": "DUPLICATION_RETURN",
+  "event_received": true,
+  "decision": "PENDING_APPROVAL",
+  "note": "P2-latest-terminal: failure_type 'DUPLICATION_RETURN' is not known-replaceable; waiting for human approval apr_7f87e92ca72d",
+  "transfers": 1,
+  "live": 0
+ }
+]

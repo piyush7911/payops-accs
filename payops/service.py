@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+from decimal import Decimal
 import threading
 import time
 import uuid
@@ -72,23 +73,48 @@ class Service:
                         "fixpoint": not r.capped, "policy": policy.DEFAULT.digest, "clauses": len(policy.DEFAULT.clauses)}
 
     # ---- narration helpers -------------------------------------------------------------------
-    def say(self, ob_id: str, kind: str, title: str, detail: str = "", chips: Optional[List[dict]] = None) -> None:
+    def say(self, ob_id: str, kind: str, title: str, detail: str = "", chips: Optional[List[dict]] = None, data: Optional[dict] = None) -> None:
+        """`data` carries structured facts for the UI (the "decision" event holds the whole turn), so the page never parses chip text."""
         with self.lock:
-            self.timeline.setdefault(ob_id, []).append({"ts": time.time(), "kind": kind, "title": title, "detail": detail, "chips": chips or []})
+            self.timeline.setdefault(ob_id, []).append({"ts": time.time(), "kind": kind, "title": title, "detail": detail, "chips": chips or [], "data": data or {}})
 
     def pause(self, k: float = 1.0) -> None:
         if self.pace:
             time.sleep(self.pace * k)
 
+    def short_funds(self, amount: float) -> float:
+        """Wallet size that covers the original payout but NOT a replacement. A failed payout refunds the amount and keeps the fee,
+        so after the failure the wallet holds funds - fee; it must be below amount + fee: funds < amount + 2*fee."""
+        fee = 22.4 if self.mode == "live" else 13.39  # live PAYER fee observed ~22.3-22.4 EUR; simulator default
+        return round(amount + 1.5 * fee, 2)
+
+    def _live_tenant(self, label: str, funds: float):
+        """Map a scenario's tenant label to a real connected account. Funding is simulated (SANDBOX). The short-wallet tenant is
+        created fresh each run so its balance is exactly `funds` (a wallet cannot be drained in the sandbox)."""
+        from . import platform
+        if label != "acct_B":
+            t = platform.ensure_tenant(self.client, f"Tenant {label[-1]} Trading LLC", deposit=max(funds, 50_000), min_balance=1_000)
+            return t.account_id, t.setup.beneficiary_id
+        # B is one persistent tenant, topped up to EXACTLY `funds` before each run. A run only ever leaves the balance at or
+        # below the target (a failed payout keeps its fee), so a top-up always works. If something left it ABOVE the target
+        # (a wallet cannot be drained), fall back to a fresh tenant.
+        fund = Decimal(str(funds))
+        t = platform.ensure_tenant(self.client, "Tenant B Short LLC", deposit=100, min_balance=1)
+        bal = self.client.balance(t.account_id, "EUR")
+        if bal > fund + Decimal("0.01"):
+            t = platform.ensure_tenant(self.client, f"Tenant B Short {uuid.uuid4().hex[:6]}", deposit=100, min_balance=1)
+            bal = self.client.balance(t.account_id, "EUR")
+        if bal < fund:  # SANDBOX: simulated top-up
+            self.client.simulate_deposit(t.setup.global_account_id, fund - bal, tenant=t.account_id)
+        return t.account_id, t.setup.beneficiary_id
+
     def new_incident(self, scenario: str, tenant: str, amount: float, funds: float, goal: str, method: str = "SWIFT",
                      currency: str = "EUR") -> Obligation:
+        beneficiary = getattr(self, "beneficiary_id", "ben_demo")
         if self.mode == "live":
-            # DEMO-ONLY: scenario tenant names are labels; connected accounts need platform access Airwallex has not enabled here.
-            # PROD: one connected account per customer, every call carrying x-on-behalf-of.
-            tenant = "self"  # connected accounts (x-on-behalf-of) are not enabled on this sandbox: use our own account
+            tenant, beneficiary = self._live_tenant(tenant, funds)  # a real connected account; every call sends x-on-behalf-of
         with self.lock:
             oid = f"inv-{scenario}-{uuid.uuid4().hex[:4]}"
-            beneficiary = getattr(self, "beneficiary_id", "ben_demo")
             ob = Obligation(oid, tenant, amount, currency, method, beneficiary)
             if isinstance(self.client, FakeAirwallex):
                 self.client.deposit(tenant, currency, funds)
@@ -119,8 +145,16 @@ class Service:
             gate_chips.append({"label": out.judge_note.split(" ")[0], "tone": "info"})
         self.say(ob.id, "gate", "ACCS gate", "Evidence: " + " | ".join(out.score.provenance[:4]) + (f"\n{v.detail}" if v.detail else ""), gate_chips)
         tone = {"REPLACED": "good", "WAITING": "info", "PENDING_APPROVAL": "warn"}.get(out.decision, "bad" if "DENIED" in out.decision else "info")
+        jn = (out.judge_note or "").replace("judge:", "", 1).strip()
+        judge = "" if not jn else ("violates" if jn.startswith("VIOLATES") else ("abstain" if jn.startswith("abstain") else "ok"))
+        turn = {"action": a.kind, "rationale": out.proposal.rationale or "", "model": getattr(self.brain, "model", "") if self.use_llm else "offline heuristic",
+                "claims": [{"subject": c.subject[:8], "field": c.field, "value": c.value} for c in out.proposal.claims],
+                "evidence": list(out.score.provenance[:6]), "raw": round(float(out.score.raw), 3), "calibrated": round(float(out.score.value), 3),
+                "gate_score": round(float(min(out.score.raw, out.score.value)), 3), "permit": v.permit, "clause": v.clause, "detail": v.detail or "",
+                "judge": judge, "judge_note": jn, "decision": out.decision, "note": out.note, "request_id": out.request_id,
+                "reply": out.emitted_reply, "reply_source": out.reply_source, "model_reply": out.proposal.reply or ""}
         self.say(ob.id, "decision", out.decision.replace("_", " ").title(), out.note, [{"label": out.decision, "tone": tone}] +
-                 ([{"label": f"request_id {out.request_id}", "tone": "info"}] if out.request_id else []))
+                 ([{"label": f"request_id {out.request_id}", "tone": "info"}] if out.request_id else []), data=turn)
         self.say(ob.id, "reply", "Reply to supplier", out.emitted_reply,
                  [{"label": "model text verified" if out.reply_source == "llm" else "template from verified state", "tone": "good" if out.reply_source == "llm" else "warn"}])
         for al in out.alerts:
@@ -155,10 +189,11 @@ class Service:
                              "transfers": [{"id": t.id, "status": t.status, "failure_type": t.failure_type, "request_id": t.request_id,
                                             "fee": str(t.fee) if t.fee is not None else None} for t in ts],
                              "attempts": self.store.attempts(oid), "timeline": self.timeline.get(oid, []),
-                             "live_count": sum(1 for t in ts if is_live(t.status))})
+                             "live_count": sum(1 for t in ts if is_live(t.status)),
+                             "fees_paid": str(sum((t.fee or Decimal(0)) for t in ts if ob.method == "SWIFT"))})
             return {"mode": self.mode, "llm": self.use_llm, "model": getattr(self.brain, "model", "heuristic"), "running": self.running,
                     "error": self.error, "formal": self._formal, "policy": {"digest": policy.DEFAULT.digest, "clauses": [
-                        {"id": c["id"], "text": c["text"], "overridable": c["overridable"]} for c in policy.DEFAULT.clauses]},
+                        {"id": c["id"], "text": c["text"], "overridable": c["overridable"], "applies": c["applies"]} for c in policy.DEFAULT.clauses]},
                     "approvals": self.commander.pending_approvals(), "incidents": incs, "audit": self.store.audit(limit=40),
                     "webhook": {"events": len(self.receiver.log), "log": self.receiver.log[-6:]}, "scenarios": scenario_catalog(self.mode)}
 
@@ -230,7 +265,7 @@ def sc_duplication(svc: Service) -> None:
 
 def sc_short_wallet(svc: Service) -> None:
     svc.new_incident("rich", "acct_A", 100, 1_000_000, "Tenant A is healthy: 1,000,000 EUR in its wallet (a neighbour that must NOT help B).")
-    ob = svc.new_incident("short", "acct_B", 1000, 1500, "Tenant B owes a supplier 1,000 EUR but its wallet only holds enough for one SWIFT payout.")
+    ob = svc.new_incident("short", "acct_B", 1000, svc.short_funds(1000), "Tenant B owes a supplier 1,000 EUR; its wallet covers the payout and a refund of the amount, but not the second SWIFT fee a replacement costs.")
     orig = svc.client.list_transfers(ob.tenant, ob.id)[0]
     svc.pause(); svc.world(ob, orig.id, [("SENT", None), ("FAILED", "CHANNEL_TIMEOUT")], "The payout failed; a replacement costs a second SWIFT fee.")
     svc.pause(); svc.ping(ob, "Where is my money?")
@@ -319,11 +354,11 @@ def sc_webhook(svc: Service) -> None:
 SCENARIOS: Dict[str, dict] = {
     "timeout": {"fn": sc_timeout, "live": True, "title": "Timeout, auto-replace", "blurb": "Wait while in flight, replace once after a channel timeout, block the duplicate ping."},
     "duplication": {"fn": sc_duplication, "live": True, "title": "Duplicate return → human", "blurb": "Supplier may already hold the money: queue an approval bound to exact terms."},
-    "short_wallet": {"fn": sc_short_wallet, "live": False, "title": "Short wallet, rich neighbour", "blurb": "Tenant B cannot afford a second SWIFT fee; tenant A's money is never used."},
-    "hallucination": {"fn": sc_hallucination, "live": False, "title": "Hallucinating model", "blurb": "A model claims a live transfer failed and pushes to resend. Claims and gate stop it."},
+    "short_wallet": {"fn": sc_short_wallet, "live": True, "title": "Short wallet, rich neighbour", "blurb": "Tenant B cannot afford a second SWIFT fee; tenant A's money is never used."},
+    "hallucination": {"fn": sc_hallucination, "live": True, "title": "Hallucinating model", "blurb": "A model claims a live transfer failed and pushes to resend. Claims and gate stop it."},
     "late_return": {"fn": sc_late_return, "live": False, "title": "PAID, then returned", "blurb": "PAID is not final: a late bank return re-opens the incident safely."},
-    "crash_recovery": {"fn": sc_crash_recovery, "live": False, "title": "Crash mid-replacement", "blurb": "Write-ahead record + deterministic request id make a restart safe."},
-    "webhook": {"fn": sc_webhook, "live": False, "title": "Signed webhooks ×3", "blurb": "Ack-first, durable dedupe, forged signature rejected, one reaction."},
+    "crash_recovery": {"fn": sc_crash_recovery, "live": True, "title": "Crash mid-replacement", "blurb": "Write-ahead record + deterministic request id make a restart safe."},
+    "webhook": {"fn": sc_webhook, "live": True, "title": "Signed webhooks ×3", "blurb": "Ack-first, durable dedupe, forged signature rejected, one reaction."},
 }
 
 

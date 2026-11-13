@@ -88,11 +88,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         svc = SERVICE["svc"]
-        if self.path == "/health":
+        path = self.path.split("?", 1)[0]  # ignore the query string (e.g. /?present=1)
+        if path == "/health":
             return self._send(200, {"ok": True, "policy_digest": P.DEFAULT.digest})
-        if self.path in ("/", "/index.html") and svc:
+        if path in ("/", "/index.html") and svc:
             return self._html()
-        if self.path == "/api/state" and svc:
+        if path == "/api/state" and svc:
             return self._send(200, svc.state())
         self._send(404, {"error": "not found"})
 

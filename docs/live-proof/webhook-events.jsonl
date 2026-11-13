@@ -1,0 +1,7 @@
+{"name": "payout.transfer.scheduled", "transfer": "eed7d045-b076-4bb0-9158-348151f1ab6b", "status": "SCHEDULED"}
+{"name": "payout.transfer.funding.scheduled", "transfer": "eed7d045-b076-4bb0-9158-348151f1ab6b", "status": "SCHEDULED"}
+{"name": "payout.transfer.funding.funded", "transfer": "eed7d045-b076-4bb0-9158-348151f1ab6b", "status": "SCHEDULED"}
+{"name": "payout.transfer.processing", "transfer": "eed7d045-b076-4bb0-9158-348151f1ab6b", "status": "PROCESSING"}
+{"name": "payout.transfer.funding.processing", "transfer": "eed7d045-b076-4bb0-9158-348151f1ab6b", "status": "SCHEDULED"}
+{"name": "payout.transfer.sent", "transfer": "eed7d045-b076-4bb0-9158-348151f1ab6b", "status": "SENT"}
+{"name": "payout.transfer.failed", "transfer": "eed7d045-b076-4bb0-9158-348151f1ab6b", "status": "FAILED"}

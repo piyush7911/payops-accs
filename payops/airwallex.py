@@ -56,7 +56,7 @@ class FakeAirwallex:
         if self.balance(ob.tenant, ob.currency) < need:
             raise RuntimeError("insufficient_funds")
         self.wallets[(ob.tenant, ob.currency)] -= need
-        t = TransferRec(f"tr_{next(self._ids)}", ob.id, ob.tenant, request_id, "PROCESSING", amount=ob.amount,
+        t = TransferRec(f"tr_{next(self._ids)}", ob.id, ob.tenant, request_id, "PROCESSING", amount=ob.amount, currency=ob.currency,
                         fee=ob.fee, charge_option=ob.swift_charge_option if ob.method == "SWIFT" else None)
         self.transfers[t.id] = t
         self._by_request[request_id] = t.id
@@ -89,6 +89,9 @@ class FakeAirwallex:
             t.status = "PAID"
         elif to == "FAILED" and t.status in ("SENT", "PAID"):  # PAID -> CANCELLED is a late bank return (seen in the sandbox)
             t.status, t.failure_type = "CANCELLED", failure_type or "simulation"  # failed transfers end CANCELLED
+            # AIRWALLEX (verified live): a failed payout refunds the amount but KEEPS the fee. The wallet is only short for a
+            # replacement if it cannot cover amount + fee again AFTER this refund.
+            self.wallets[(t.tenant, t.currency)] = self.wallets.get((t.tenant, t.currency), Decimal(0)) + t.amount
         else:
             raise ValueError(f"invalid transition {t.status} -> {to}")
         return t
@@ -188,7 +191,8 @@ class AirwallexREST:
                     d = json.loads(e.read() or b"{}")
                 except ValueError:
                     d = {}
-                err = AirwallexError(e.code, str(d.get("code", "http_error")), redact(str(d.get("message", ""))[:300]),
+                fields = ", ".join(f"{x.get('source')}:{x.get('code')}" for x in (d.get("details") or {}).get("errors", []) if isinstance(x, dict))
+                err = AirwallexError(e.code, str(d.get("code", "http_error")), redact((str(d.get("message", "")) + (f" [{fields}]" if fields else ""))[:400]),
                                      trace_id=e.headers.get("x-awx-traceid") if e.headers else None)
                 if e.code == 401 and not use_key and not refreshed:
                     refreshed = True
@@ -269,15 +273,27 @@ class AirwallexREST:
             ob.observed_fee = D(d["fee_amount"])  # use the real fee for budgeting from now on
         return self._rec(d, ob.id, ob.tenant)
 
-    def _all(self, tenant: str) -> List[dict]:
-        items = self._call("GET", "/api/v1/transfers?page_size=100", tenant=tenant).get("items", [])
+    MAX_PAGES = 500
+
+    def _all(self, tenant: str, request_id: Optional[str] = None) -> List[dict]:
+        """Every transfer, oldest first. AIRWALLEX (verified live + docs): the list is newest-first and pages with a `page` cursor
+        (the previous response's `page_after`); WITHOUT a `page` parameter it silently returns only the last 30 days, so we always
+        send `page=0` (a full search). `reference` is not a filter (ignored); `request_id` is (case-insensitive, exact)."""
+        items, page, n = [], "0", 0
+        while page and n < self.MAX_PAGES:
+            q = f"/api/v1/transfers?page_size=200&page={page}" + (f"&request_id={request_id}" if request_id else "")
+            d = self._call("GET", q, tenant=tenant)
+            got = d.get("items", [])
+            items += got
+            page = d.get("page_after") if got else None
+            n += 1
         return sorted(items, key=lambda i: i.get("created_at", ""))  # original first
 
     def list_transfers(self, tenant: str, obligation_id: str) -> List[TransferRec]:
         return [self._rec(i, obligation_id, tenant) for i in self._all(tenant) if i.get("reference") == obligation_id]
 
     def find_by_request_id(self, tenant: str, request_id: str) -> Optional[TransferRec]:
-        for i in self._all(tenant):  # Airwallex upper-cases request_id
+        for i in self._all(tenant, request_id=request_id):  # a direct, exact lookup: no scan, no page limit, no 30-day window
             if i.get("request_id", "").lower() == request_id.lower():
                 return self._rec(i, i.get("reference", ""), tenant)
         return None
@@ -292,29 +308,30 @@ class AirwallexREST:
         return self._rec(d, d.get("reference", ""), tenant)
 
     # ---- setup helpers (used by bootstrap.py) -------------------------------------------------
-    def list_global_accounts(self) -> List[dict]:
-        return self._call("GET", "/api/v1/global_accounts").get("items", [])
+    def list_global_accounts(self, tenant: Optional[str] = None) -> List[dict]:
+        return self._call("GET", "/api/v1/global_accounts", tenant=tenant).get("items", [])
 
-    def create_global_account(self, country_code: str, currency: str, request_id: str) -> dict:
-        return self._call("POST", "/api/v1/global_accounts/create", body={
+    def create_global_account(self, country_code: str, currency: str, request_id: str, tenant: Optional[str] = None) -> dict:
+        return self._call("POST", "/api/v1/global_accounts/create", tenant=tenant, body={
             "request_id": request_id, "country_code": country_code,
             "required_features": [{"currency": currency, "transfer_method": "LOCAL"}]})
 
-    def simulate_deposit(self, global_account_id: str, amount, payer_name: str = "Seed funding") -> dict:
+    def simulate_deposit(self, global_account_id: str, amount, payer_name: str = "Seed funding", tenant: Optional[str] = None) -> dict:
         # SANDBOX: simulated inbound deposit; there is no top-up button and no such endpoint in production. PROD: real funding.
-        return self._call("POST", "/api/v1/simulation/deposit/create", retry=False, body={
+        return self._call("POST", "/api/v1/simulation/deposit/create", retry=False, tenant=tenant, body={
             "global_account_id": global_account_id, "amount": float(amount), "payer_name": payer_name})
 
-    def list_beneficiaries(self) -> List[dict]:
-        return self._call("GET", "/api/v1/beneficiaries?page_size=100").get("items", [])
+    def list_beneficiaries(self, tenant: Optional[str] = None) -> List[dict]:
+        return self._call("GET", "/api/v1/beneficiaries?page_size=100", tenant=tenant).get("items", [])
 
     # fields the schema marks required that Airwallex derives itself or names differently in the create call (verified live)
     SCHEMA_ALIASES = {"bank_name": "derived from swift_code/iban", "payment_methods": "sent as transfer_methods"}
 
-    def beneficiary_required_fields(self, country: str, currency: str, entity_type: str = "COMPANY", method: str = "SWIFT") -> List[str]:
+    def beneficiary_required_fields(self, country: str, currency: str, entity_type: str = "COMPANY", method: str = "SWIFT",
+                                    tenant: Optional[str] = None) -> List[str]:
         """POST /beneficiaries/schema -> the leaf fields that are required and relevant for this corridor."""
         d = self._call("POST", "/api/v1/beneficiaries/schema", body={"bank_country_code": country, "account_currency": currency,
-                                                                       "entity_type": entity_type, "transfer_method": method})["schema"]
+                                                                       "entity_type": entity_type, "transfer_method": method}, tenant=tenant)["schema"]
         return sorted(k.replace("create_beneficiary_request.", "") for k, v in d.items()
                       if v.get("required") and v.get("relevant") and v.get("type") != "object")
 
@@ -335,14 +352,29 @@ class AirwallexREST:
 
     def create_beneficiary(self, nickname: str, request_id: str, company_name: str = "Acme Supplies GmbH",
                            iban: str = "DE89370400440532013000", swift_code: str = "COBADEFF", country: str = "DE",
-                           currency: str = "EUR", method: str = "SWIFT") -> dict:
+                           currency: str = "EUR", method: str = "SWIFT", tenant: Optional[str] = None) -> dict:
         """Company beneficiary (field set verified against the live sandbox). The payload is checked against the corridor's
         schema first, so a missing field is reported by name instead of as an opaque validation_failed."""
         body = self._beneficiary_body(nickname, request_id, company_name, iban, swift_code, country, currency, method)
-        missing = self.missing_fields(body, self.beneficiary_required_fields(country, currency, "COMPANY", method), self.SCHEMA_ALIASES)
+        ok, why = self.validate_beneficiary(body, tenant)  # POST /beneficiaries/validate: authoritative, creates nothing
+        if not ok:
+            raise AirwallexError(400, "beneficiary_invalid", f"rejected by /beneficiaries/validate before creating anything: {why}")
+        missing = self.missing_fields(body, self.beneficiary_required_fields(country, currency, "COMPANY", method, tenant), self.SCHEMA_ALIASES)
         if missing:
             raise AirwallexError(400, "beneficiary_schema_missing", f"required by the {country}/{currency}/{method} schema: {', '.join(missing)}")
-        return self._call("POST", "/api/v1/beneficiaries/create", body=body)
+        return self._call("POST", "/api/v1/beneficiaries/create", body=body, tenant=tenant)
+
+    def validate_beneficiary(self, body: dict, tenant: Optional[str] = None):
+        """POST /beneficiaries/validate (documented; accepts x-on-behalf-of). Body is {beneficiary, transfer_methods}. Returns
+        (ok, reason) and creates nothing; checksums (IBAN, routing) and required fields are checked server-side."""
+        try:
+            self._call("POST", "/api/v1/beneficiaries/validate", tenant=tenant,
+                       body={"beneficiary": body["beneficiary"], "transfer_methods": body["transfer_methods"]})
+            return True, ""
+        except AirwallexError as e:
+            if e.code == "validation_failed":
+                return False, e.message
+            raise
 
     @staticmethod
     def _beneficiary_body(nickname, request_id, company_name, iban, swift_code, country, currency, method) -> dict:
@@ -354,3 +386,24 @@ class AirwallexREST:
                                              "bank_country_code": country},
                             "address": {"country_code": country, "city": "Berlin", "street_address": "1 Test Strasse",
                                         "postcode": "10115"}}}
+
+    # ---- connected accounts (platform) --------------------------------------------------------
+    def create_account(self, body: dict) -> dict:
+        return self._call("POST", "/api/v1/accounts/create", body=body)
+
+    def update_account(self, account_id: str, body: dict) -> dict:
+        return self._call("POST", f"/api/v1/accounts/{account_id}/update", body=body)
+
+    def submit_account(self, account_id: str) -> dict:
+        return self._call("POST", f"/api/v1/accounts/{account_id}/submit", body={})
+
+    def get_account(self, account_id: str) -> dict:
+        return self._call("GET", f"/api/v1/accounts/{account_id}")
+
+    def list_accounts(self) -> List[dict]:
+        return self._call("GET", "/api/v1/accounts?page_size=100").get("items", [])
+
+    def activate_account(self, account_id: str) -> dict:
+        # SANDBOX: forces ACTIVE without KYB. PROD: the account activates after Airwallex's onboarding review.
+        return self._call("POST", f"/api/v1/simulation/accounts/{account_id}/update_status", retry=False,
+                          body={"next_status": "ACTIVE", "force": True})

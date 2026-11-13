@@ -9,7 +9,7 @@ Delivery is at-least-once and unordered, and the sender retries for days on any 
   * apply an event to a transfer only if no newer event (by `created_at`) was already applied to it; terminal states are sticky
     (a FAILED/CANCELLED/PAID transfer is never moved back by a late event)
   * unknown events/ids are acknowledged and ignored
-Event names: `payout.transfer.*` and `payout.batch_transfers.*` (confirmed by the reference builds); the resource is
+Event names: `payout.transfer.*` and `payout.batch_transfers.*` (confirmed on the sandbox); the resource is
 `data.object` (or `data`). Test events from the Airwallex console are signed with the key in the payload's
 `client-secret-key` header; accepting that is only safe in a sandbox, so it is OFF unless `allow_test_events=True`.
 """

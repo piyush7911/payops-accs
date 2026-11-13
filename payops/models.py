@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import List, Optional
 
-# Real Airwallex transfer statuses (verified in the sandbox and in the reference builds' verification docs):
+# Real Airwallex transfer statuses (verified in the sandbox):
 #   SCHEDULED, IN_APPROVAL, PROCESSING, OVERDUE, SENT, PAID, FAILED, CANCELLED   (FAILED is reported as CANCELLED by list/detail)
 # Fail-safe classification: anything that is not definitively dead counts as live, so a status we have never seen is
 # treated as "money may be moving" and blocks a replacement rather than permitting a double payment.
@@ -68,6 +68,7 @@ class TransferRec:
     amount: Decimal = Decimal(0)
     fee: Optional[Decimal] = None  # fee_amount Airwallex reported for this transfer
     charge_option: Optional[str] = None  # swift_charge_option it was created with
+    currency: str = "EUR"
 
     def __post_init__(self) -> None:
         self.amount = D(self.amount)

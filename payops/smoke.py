@@ -133,6 +133,43 @@ def run() -> List[Tuple[str, str, str, str]]:
         return ("pass", f"agent end to end: WAIT -> REPLACE under deterministic id {rep.request_id} -> WAIT on the next ping; {len(ts)} transfers") if ok \
             else ("FAIL", f"{w1.decision}/{rep.decision}/{again.decision}, {len(ts)} transfers")
 
+    def v16():
+        from . import platform
+        t = platform.ensure_tenant(aw, "Tenant A Trading LLC", deposit=50_000, min_balance=1_000)
+        ctx["tenant"] = t
+        a = aw.get_account(t.account_id)
+        return ("pass", f"connected account {t.account_id[:14]} ACTIVE with EIN, global account + funded wallet + SWIFT beneficiary created on its behalf") \
+            if a.get("status") == "ACTIVE" else ("FAIL", a.get("status"))
+
+    def v17():
+        t = ctx["tenant"]
+        ob = Obligation("inv-smoke-ca-" + uuid.uuid4().hex[:5], t.account_id, 12, "EUR", "SWIFT", t.setup.beneficiary_id)
+        rec = aw.create_transfer(ob, "po-smoke-" + uuid.uuid4().hex[:12])
+        mine = aw.list_transfers(t.account_id, ob.id)
+        own = aw.list_transfers("self", ob.id)
+        aw.transition(t.account_id, rec.id, "SENT"); aw.transition(t.account_id, rec.id, "FAILED", "SYSTEM_ERROR")
+        return ("pass", f"x-on-behalf-of transfer {rec.id[:8]} visible to the tenant ({len(mine)}) and NOT to the platform's own account ({len(own)})") \
+            if len(mine) == 1 and len(own) == 0 else ("FAIL", f"tenant sees {len(mine)}, platform sees {len(own)}")
+
+    def v18():
+        t = ctx["tenant"]
+        before = aw.balance(t.account_id, "EUR")
+        platform_before = aw.balance("self", "EUR")
+        ob = Obligation("inv-smoke-iso-" + uuid.uuid4().hex[:5], t.account_id, 12, "EUR", "SWIFT", t.setup.beneficiary_id)
+        rec = aw.create_transfer(ob, "po-smoke-" + uuid.uuid4().hex[:12])
+        spent_t, spent_p = before - aw.balance(t.account_id, "EUR"), platform_before - aw.balance("self", "EUR")
+        aw.transition(t.account_id, rec.id, "SENT"); aw.transition(t.account_id, rec.id, "FAILED", "SYSTEM_ERROR")
+        return ("pass", f"tenant wallet paid {spent_t} EUR; the platform wallet paid {spent_p} (one tenant's money never funds another)") \
+            if spent_t > 0 and spent_p == 0 else ("FAIL", f"tenant {spent_t}, platform {spent_p}")
+
+    def v19():
+        good = aw._beneficiary_body("smoke", str(uuid.uuid4()), "Acme Supplies GmbH", "DE89370400440532013000", "COBADEFF", "DE", "EUR", "SWIFT")
+        ok, _ = aw.validate_beneficiary(good)
+        bad = aw._beneficiary_body("smoke", str(uuid.uuid4()), "Acme Supplies GmbH", "DE00000000000000000000", "COBADEFF", "DE", "EUR", "SWIFT")
+        bad_ok, why = aw.validate_beneficiary(bad)
+        return ("pass", f"POST /beneficiaries/validate: good payload OK; bad IBAN rejected ({why[-40:]}); nothing created") if ok and not bad_ok \
+            else ("FAIL", f"good={ok} bad={bad_ok}")
+
     def v15():
         return "skip", "webhook delivery needs a public tunnel and a secret registered in the web app; signature, dedupe, ordering and worker are covered by tests"
 
@@ -143,7 +180,11 @@ def run() -> List[Tuple[str, str, str, str]]:
         ("V7", "reused request_id -> duplicate_request_id", v7), ("V8", "reused request_id, different amount -> conflict", v8),
         ("V9", "request_id length bounds", v9), ("V10", "SENT then FAILED(type) ends CANCELLED with a recoverable cause", v10),
         ("V11", "list omits failure info, detail has it", v11), ("V12", "invalid simulation transition is not retried", v12),
-        ("V13", "failed SWIFT payout keeps its fee", v13), ("V14", "full agent loop on the real sandbox", v14), ("V15", "webhook delivery", v15)]:
+        ("V13", "failed SWIFT payout keeps its fee", v13), ("V14", "full agent loop on the real sandbox", v14), ("V15", "webhook delivery", v15),
+        ("V16", "connected account: create, submit, activate, fund, beneficiary", v16),
+        ("V17", "x-on-behalf-of transfers belong to the tenant, not the platform", v17),
+        ("V18", "a tenant transfer is paid from the tenant wallet only", v18),
+        ("V19", "beneficiary validated server-side before create", v19)]:
         check(cid, claim, fn)
     return rows
 
@@ -159,6 +200,12 @@ def write(rows, path: str) -> None:
              f"API version `{DEFAULT_API_VERSION}`. Regenerate any time; a FAIL means the API drifted from what the code assumes.", "",
              "| ID | Claim | Result | Detail |", "| --- | --- | --- | --- |"]
     lines += [f"| {c} | {claim} | {st} | {d.replace('|', '/')} |" for c, claim, st, d in rows]
+    lines += ["", "## Notes on behaviour found while verifying (all against the live sandbox)",
+              "* To submit a connected account: `business_details.account_usage.product_reference` (and `estimated_monthly_revenue` for businesses), an EIN in `business_identifiers`, and `business_person_details[].identifications.primary` are all required. A missing identification fails with the unhelpful `field_required: ensure is not null`.",
+              "* For a few minutes after activation, `transfers/create` on behalf of the account returns `400 fee_unknown`; `transfers/validate` passes during that window, so only a real create shows readiness.",
+              "* A transfer that ends CANCELLED has its principal returned and keeps its fee; one that sits at FAILED has NOT had its principal returned. Both mean \"will not deliver\", and which one a failure reaches is not predictable from timing or concurrency (found by reconciling wallets in `docs/LIVE-PROOF.md`).",
+              "* `GET /transfers` is newest-first and pages with a `page` cursor (the previous `page_after`). WITHOUT a `page` parameter it silently returns only the last 30 days; `page=0` is a full search. `reference` is not a filter; `request_id` is (case-insensitive).",
+              "* The simulator answers `500 operation_failed` if a status change arrives before a brand-new transfer has reached PROCESSING; retry briefly. It never needs a retry from the agent, which does not use the simulator."]
     open(path, "w").write("\n".join(lines) + "\n")
 
 

@@ -145,8 +145,62 @@ def test_missing_fields_ignores_aliases_and_reports_real_gaps():
 def test_create_beneficiary_fails_early_naming_the_missing_field():
     schema = json.loads(json.dumps(SCHEMA))
     schema["schema"]["create_beneficiary_request.beneficiary.bank_details.routing_number"] = {"required": True, "relevant": True, "type": "string"}
-    c, s = client(LOGIN, schema)
+    c, s = client(LOGIN, "OK", schema)  # validate passes, then the schema check finds the gap
     with pytest.raises(AirwallexError) as e:
         c.create_beneficiary("n", "po-abc1234567-r1")
     assert e.value.code == "beneficiary_schema_missing" and "routing_number" in e.value.message
     assert not any(x[1] == "/api/v1/beneficiaries/create" for x in s.calls)  # nothing was sent
+
+
+# ---- POST /beneficiaries/validate before create --------------------------------------------------------
+def test_validate_runs_before_create_and_sends_only_the_documented_body():
+    c, s = client(LOGIN, "OK", SCHEMA, {"id": "b1"})
+    assert c.create_beneficiary("n", "po-abc1234567-r1", tenant="acct_X")["id"] == "b1"
+    paths = [x[1] for x in s.calls]
+    assert paths.index("/api/v1/beneficiaries/validate") < paths.index("/api/v1/beneficiaries/create")
+    v = next(x for x in s.calls if x[1] == "/api/v1/beneficiaries/validate")
+    assert set(json.loads(v[3])) == {"beneficiary", "transfer_methods"} and {k.lower(): w for k, w in v[2].items()}["x-on-behalf-of"] == "acct_X"
+
+
+def test_invalid_beneficiary_is_rejected_by_validate_and_never_created():
+    err = http_error(400, {"code": "validation_failed", "message": "bad", "details": {"errors": [{"source": "beneficiary.bank_details.iban", "code": "021"}]}})
+    c, s = client(LOGIN, err)
+    with pytest.raises(AirwallexError) as e:
+        c.create_beneficiary("n", "po-abc1234567-r1")
+    assert e.value.code == "beneficiary_invalid" and "iban:021" in e.value.message
+    assert not any(x[1] == "/api/v1/beneficiaries/create" for x in s.calls)
+
+
+def test_error_message_names_the_failing_fields():
+    err = http_error(400, {"code": "validation_failed", "message": "bad", "details": {"errors": [{"source": "request_id", "code": "018"}]}})
+    c, s = client(LOGIN, err)
+    with pytest.raises(AirwallexError) as e:
+        c._call("POST", "/api/v1/transfers/create", {})
+    assert "request_id:018" in e.value.message
+
+
+# ---- pagination and the silent 30-day window (verified against the live API and its docs) -----------------------
+def _page(ids, after=None):
+    return {"items": [{"id": i, "reference": "o1", "status": "SCHEDULED", "request_id": f"R-{i}", "source_amount": 10, "created_at": f"2026-10-{int(i[1:]):02d}T00:00:00"} for i in ids],
+            **({"page_after": after} if after else {})}
+
+
+def test_list_transfers_walks_every_page_and_always_sends_page_zero():
+    c, s = client(LOGIN, _page(["t5", "t4"], "CUR1"), _page(["t3", "t2"], "CUR2"), _page(["t1"]))
+    ts = c.list_transfers("self", "o1")
+    assert [t.id for t in ts] == ["t1", "t2", "t3", "t4", "t5"]  # all pages, oldest first
+    urls = [x[1] for x in s.calls if x[1].startswith("/api/v1/transfers")]
+    assert "page=0" in urls[0] and "page=CUR1" in urls[1] and "page=CUR2" in urls[2]  # page=0 lifts the default 30-day window
+
+
+def test_find_by_request_id_is_a_direct_filtered_lookup_not_a_scan():
+    c, s = client(LOGIN, _page(["t9"]))
+    t = c.find_by_request_id("self", "r-t9")
+    assert t is not None and t.id == "t9"
+    url = [x[1] for x in s.calls if x[1].startswith("/api/v1/transfers")][0]
+    assert "request_id=r-t9" in url and "page=0" in url
+
+
+def test_find_by_request_id_returns_none_when_unknown():
+    c, s = client(LOGIN, {"items": []})
+    assert c.find_by_request_id("self", "nope-1234567890") is None

@@ -51,13 +51,13 @@ def test_replace_after_failure_then_duplicate_denied_with_clause():
 
 
 def test_fee_budget_two_swift_fees():
-    aw, cmd, ob, orig = make(amount=1000, funds=1500)
+    aw, cmd, ob, orig = make(amount=1000, funds=1020)
     fail(aw, orig)
     assert cmd.handle(ob.id, "x").verdict.clause == "P5-fee-budget"
 
 
 def test_tenant_isolation_never_uses_other_wallet():
-    aw, cmd, ob, orig = make(tenant="acct_B", amount=1000, funds=1500)
+    aw, cmd, ob, orig = make(tenant="acct_B", amount=1000, funds=1020)
     aw.deposit("acct_A", "EUR", 1_000_000)  # rich neighbour must not help
     fail(aw, orig)
     out = cmd.handle(ob.id, "x")
@@ -235,7 +235,7 @@ def test_judge_can_only_restrict():
     assert out.decision == "DENIED_ESCALATED" and out.verdict.clause.startswith("JUDGE:")
     assert len(aw.list_transfers(ob.tenant, ob.id)) == 1
     # a permissive judge can never override a code-gate denial
-    aw2, cmd2, ob2, orig2 = make(amount=1000, funds=1500)
+    aw2, cmd2, ob2, orig2 = make(amount=1000, funds=1020)
     fail(aw2, orig2)
     cmd2.judge = Permissive()
     assert cmd2.handle(ob2.id, "x").verdict.clause == "P5-fee-budget"

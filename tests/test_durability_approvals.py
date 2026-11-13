@@ -121,7 +121,7 @@ def test_approval_expires_if_the_world_changed():
 
 
 def test_hard_clauses_still_block_an_approved_action():
-    aw, cmd, ob, orig = build(amount=1000, funds=1500)  # cannot afford amount + fee for a second payout
+    aw, cmd, ob, orig = build(amount=1000, funds=1020)  # cannot afford amount + fee for a second payout
     fail(aw, orig, "DUPLICATION_RETURN")
     apr = cmd.handle(ob.id, "x").approval_id
     r = cmd.approve(apr, "ops@example.com")

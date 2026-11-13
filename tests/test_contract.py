@@ -1,4 +1,4 @@
-"""Interface-contract conformance (accs.md section 6/7): verdict/score/artifact records, the emission-path guarantee,
+"""Interface-contract conformance (ACCS spec, sections 6-7): verdict/score/artifact records, the emission-path guarantee,
 an injected policy violation, and the per-step auditor."""
 from payops import consistency, policy
 from payops.airwallex import FakeAirwallex

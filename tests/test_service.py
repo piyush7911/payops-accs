@@ -159,3 +159,28 @@ def test_approver_token_gates_approvals_when_configured(server, svc, monkeypatch
         assert e.value.code == 403
     assert len(json.loads(call(server, "/api/state")[1])["incidents"][0]["transfers"]) == 1  # nothing moved without the token
     assert json.loads(post({"x-approver-token": "s3cret"}).read())["status"] == "executed"
+
+
+def test_short_wallet_size_covers_the_original_but_not_a_replacement(svc):
+    """Failed payout = amount refunded, fee kept. So funds must satisfy: amount + fee <= funds < amount + 2*fee."""
+    for mode, fee in (("simulator", 13.39), ("live", 22.4)):
+        svc.mode = mode
+        f = svc.short_funds(1000)
+        assert 1000 + fee <= f < 1000 + 2 * fee, (mode, f)
+    svc.mode = "simulator"
+
+
+def test_offline_demo_script_shows_the_short_wallet_being_denied():
+    """Regression: demo.py was sized before refund-on-cancel and silently showed a replacement for the short tenant."""
+    import subprocess, sys, os
+    root = os.path.dirname(os.path.dirname(__file__))
+    out = subprocess.run([sys.executable, "demo.py"], cwd=root, capture_output=True, text=True, timeout=120,
+                         env={**os.environ, "OPENAI_API_KEY": "", "OPENAI_BASE_URL": ""}).stdout
+    short = out.split("Tenant B")[1].split("Misbehaving")[0]
+    assert "DENY P5-fee-budget" in short and "REPLACED" not in short
+
+
+def test_ui_is_served_with_a_query_string(server):
+    code, html = call(server, "/?present=1")
+    assert code == 200 and b"Incident Commander" in html
+    assert call(server, "/api/state?x=1")[0] == 200

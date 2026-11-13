@@ -16,6 +16,7 @@ clauses (single live payment, tenant isolation, fee budget, ...) are never overr
 from __future__ import annotations
 
 import json
+import time
 import re
 import threading
 from dataclasses import dataclass, field
@@ -55,6 +56,7 @@ class Commander:
         self.audit: List[dict] = []
         self.event_outcomes: List[tuple] = []
         self._locks: Dict[str, threading.Lock] = {}
+        self.fault = lambda point: None  # test hook: the chaos harness raises here to simulate a process dying mid-payment
 
     # ---- state -------------------------------------------------------------------------------
     @property
@@ -212,9 +214,20 @@ class Commander:
         status = str(obj.get("status", "")).upper()
         if ob_id not in self.obligations or status not in ("FAILED", "CANCELLED", "PAID"):
             return None
-        out = self.handle(ob_id, f"[webhook {name}] transfer {obj.get('id', '')[:8]} is now {status}")
+        self._await_live_state(self.obligations[ob_id], obj.get("id"))
+        out = self.handle(ob_id, f"[Airwallex event {name}] transfer {obj.get('id', '')[:8]} is now {status}. This is an automatic notification from the payment "
+                                f"system, not a message from the supplier: decide from the live records.")
         self.event_outcomes.append((name, obj.get("id"), out))
         return out
+
+    def _await_live_state(self, ob: Obligation, transfer_id: Optional[str], tries: int = 20, delay: float = 0.5) -> None:
+        """An event can arrive before the list endpoint reflects it (seen live: the push says FAILED while the list still shows SENT, and the
+        failure type is not yet there). Deciding on that stale read would be wrong in the safe direction (escalate), so wait for it to catch up."""
+        for _ in range(tries):
+            t = next((x for x in self.client.list_transfers(ob.tenant, ob.id) if x.id == transfer_id), None)
+            if t is None or t.status in ("CANCELLED", "PAID") or (t.status == "FAILED" and t.failure_type):
+                return
+            time.sleep(delay)
 
     def _gate_reply(self, out: Outcome, ob: Obligation, transfers: List[TransferRec]) -> None:
         """Emission path for text: model's reply only if corroborated and it promises nothing we did not do."""
@@ -249,6 +262,7 @@ class Commander:
                 self._log(ob.id, "preflight_failed", request_id=rid, why=why)
                 return Outcome("ESCALATED", verdict, sc, prop, f"preflight validation failed ({why}); nothing was sent; a person must fix the beneficiary")
         self.store.begin_attempt(ob.id, attempt_no, rid)  # write-ahead: committed BEFORE money can move
+        self.fault("after_begin")  # a crash here leaves a PENDING attempt and no transfer
         try:
             t = self.client.create_transfer(ob, rid)
         except Exception as e:  # ambiguous: reconcile by request_id, do NOT mint a different id
@@ -260,6 +274,7 @@ class Commander:
             self._log(ob.id, "unknown_outcome", request_id=rid, error=repr(e))
             return Outcome("ESCALATED", verdict, sc, prop, f"create failed ({e!r}); no transfer found; attempt stays PENDING, "
                                                            f"the next run retries with the same request_id")
+        self.fault("after_create")  # a crash here leaves a PENDING attempt AND a created transfer
         self.store.finish_attempt(rid, t.id)
         self.store.add_obligation(ob)  # persists the observed SWIFT fee
         return Outcome("REPLACED", verdict, sc, prop, f"replacement {t.id} created")

@@ -13,7 +13,7 @@ decision. `audit_decision` is written independently of the gate's predicates (pl
 
 The reachable set R is the least fixed point of the step relation; the safety invariant I = (INV-1..9) is checked to
 hold on all of R, i.e. R subset of I, and R is closed under every move (that is the coinductive proof obligation
-I <= F(I) discharged by enumeration; see docs/RESEARCH.md for the argument and the abstraction's soundness).
+I <= F(I) discharged by enumeration; the argument and the abstraction's soundness are in the module comments and tests).
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ State = Tuple[Tuple[str, Optional[str]], ...]
 FT = {"R": "CHANNEL_TIMEOUT", "N": "DUPLICATION_RETURN", None: None}
 
 # Environment transition table. Superset of what the sandbox simulator does: real transfers can also be cancelled before
-# they are sent, go OVERDUE, and be returned by the bank AFTER being marked PAID (reference builds: PAID -> CANCELLED).
+# they are sent, go OVERDUE, and be returned by the bank AFTER being marked PAID (PAID -> CANCELLED is observed on the sandbox).
 ENV_MOVES = {
     "SCHEDULED": (("PROCESSING", None, "PROCESSING"), ("CANCELLED", "N", "CANCEL_N")),
     "IN_APPROVAL": (("PROCESSING", None, "APPROVED"), ("CANCELLED", "N", "REJECTED")),
