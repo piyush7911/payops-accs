@@ -4,6 +4,8 @@
 
 We did not let the LLM make that decision alone. The model **proposes**; **ACCS** (Agent Compliance & Consistency Suite) **checks the facts, enforces a written policy and pays exactly once**. We built the LLM-only version first, tested it on the live Airwallex sandbox, and it paid twice and believed things that were not true. ACCS is what fixed that.
 
+> **Demo Video:** Watch the full walkthrough and live sandbox demonstration in [`demo_video/PayOps_Piyush.mp4`](demo_video/PayOps_Piyush.mp4).
+
 ```
 python run_ui.py          # http://127.0.0.1:8765  - simulator, no credentials needed
 python run_ui.py --live   # the same scenarios against the real Airwallex sandbox (needs .env)
